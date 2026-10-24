@@ -11,6 +11,7 @@ import { EvaluationView } from "./EvaluationView";
 import { OverviewView } from "./OverviewView";
 import { RetrievalView } from "./RetrievalView";
 import { SettingsView } from "./SettingsView";
+import { WorkspaceSelector } from "@/components/shell/WorkspaceSelector";
 
 const initialState = useAppStore.getState();
 
@@ -66,13 +67,13 @@ describe("ChunkingView", () => {
   it("recomputes chunks when the size changes and rejects invalid overlap", async () => {
     const { user } = renderWithEngine(<ChunkingView />);
     await waitForPage("Chunking");
-    const countBefore = within(screen.getByText("Chunks").parentElement!).getByText(/^\d+$/).textContent;
+    const countBefore = within(screen.getByText("Chunks").closest(".rounded-xl") as HTMLElement).getByText(/^\d+$/).textContent;
 
     const size = screen.getByLabelText("Chunk size (characters)");
     await user.clear(size);
     await user.type(size, "200");
     await waitFor(() => expect(useAppStore.getState().settings.chunking.size).toBe(200));
-    const countAfter = within(screen.getByText("Chunks").parentElement!).getByText(/^\d+$/).textContent;
+    const countAfter = within(screen.getByText("Chunks").closest(".rounded-xl") as HTMLElement).getByText(/^\d+$/).textContent;
     expect(Number(countAfter)).toBeGreaterThan(Number(countBefore));
 
     const overlap = screen.getByLabelText("Overlap (characters)");
@@ -90,7 +91,7 @@ describe("RetrievalView", () => {
     await user.type(screen.getByLabelText("Query"), "descaled espresso machines");
     await user.click(screen.getByRole("button", { name: "Search" }));
     const results = await screen.findAllByTestId("retrieval-result");
-    expect(results[0]).toHaveTextContent("#1");
+    expect(within(results[0]).getByText("1")).toBeInTheDocument();
     expect(results[0]).toHaveTextContent("equipment-maintenance.txt");
     expect(results[0]).toHaveTextContent(/BM25 \d/);
   });
@@ -108,7 +109,7 @@ describe("RetrievalView", () => {
   it("keeps semantic mode disabled until the embedding model is loaded", async () => {
     renderWithEngine(<RetrievalView />);
     await waitForPage("Retrieval inspector");
-    expect(screen.getByRole("radio", { name: "Semantic (embeddings)" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Semantic" })).toBeDisabled();
   });
 });
 
@@ -182,7 +183,7 @@ describe("Overview and pipeline", () => {
         <SearchOnce />
       </>,
     );
-    await waitForPage("Pipeline");
+    await waitForPage(/Ask your documents/);
     const retrieval = screen.getByTestId("stage-retrieval");
     expect(retrieval).toHaveTextContent("Not run");
     await waitFor(() => expect(screen.getByTestId("stage-chunking")).toHaveTextContent("Done"));
@@ -238,5 +239,71 @@ describe("SettingsView and the embedding engine", () => {
     expect(state.documents.some((d) => d.name === "private.txt")).toBe(false);
     expect(state.documents.every((d) => d.origin === "sample")).toBe(true);
     expect(state.evalRuns).toEqual([]);
+  });
+});
+
+describe("Features for your own data", () => {
+  it("adds pasted text as a document", async () => {
+    const { user } = renderWithEngine(<DocumentsView />);
+    await waitForPage("Documents");
+    act(() => useAppStore.getState().setActiveWorkspace(USER_WORKSPACE_ID));
+    await user.click(screen.getByRole("radio", { name: "Paste text" }));
+    await user.type(screen.getByLabelText("Title"), "Team notes");
+    await user.type(screen.getByLabelText("Text"), "The launch is planned for the second week of May.");
+    await user.click(screen.getByRole("button", { name: /Add as document/ }));
+    expect(await screen.findByText(/Added .Team notes./)).toBeInTheDocument();
+    const docs = useAppStore.getState().documents.filter((d) => d.workspaceId === USER_WORKSPACE_ID);
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({ name: "Team notes", kind: "text", origin: "user" });
+  });
+
+  it("creates and switches workspaces from the selector", async () => {
+    const { user } = renderWithEngine(<WorkspaceSelector />);
+    await waitFor(() => expect(useAppStore.getState().hydrated).toBe(true));
+    await user.click(screen.getByRole("button", { name: /Workspace:/ }));
+    await user.click(screen.getByRole("button", { name: /New workspace/ }));
+    await user.type(screen.getByLabelText("New workspace name"), "Contracts");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    const s = useAppStore.getState();
+    expect(s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.name).toBe("Contracts");
+    expect(screen.getByRole("button", { name: "Workspace: Contracts" })).toBeInTheDocument();
+  });
+
+  it("keeps a chat history of questions and answers", async () => {
+    const { user } = renderWithEngine(<AskView />);
+    await waitForPage("Ask");
+    await user.type(screen.getByLabelText("Question"), "How long does refund processing take?{Enter}");
+    await screen.findByTestId("answer");
+    await user.type(screen.getByLabelText("Question"), "Who founded the company?{Enter}");
+    await screen.findByTestId("insufficient-evidence");
+    expect(screen.getByText("How long does refund processing take?", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Who founded the company?", { selector: "p" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Clear chat/ }));
+    expect(screen.queryByTestId("answer")).not.toBeInTheDocument();
+  });
+
+  it("runs hybrid retrieval once the model is loaded", async () => {
+    function LoadModel() {
+      const { loadModel, semanticReady } = useEngine();
+      return (
+        <button onClick={() => void loadModel({ switchToHybrid: true })}>{semanticReady ? "model ready" : "load model"}</button>
+      );
+    }
+    const { user } = renderWithEngine(
+      <>
+        <LoadModel />
+        <RetrievalView />
+      </>,
+    );
+    await waitForPage("Retrieval inspector");
+    await user.click(screen.getByRole("button", { name: "load model" }));
+    await screen.findByRole("button", { name: "model ready" });
+    expect(useAppStore.getState().settings.retrieval.mode).toBe("hybrid");
+    await user.click(screen.getByRole("radio", { name: "Hybrid" }));
+    await user.type(screen.getByLabelText("Query"), "descaled espresso machines");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const results = await screen.findAllByTestId("retrieval-result");
+    expect(results[0]).toHaveTextContent(/RRF \d/);
+    expect(results[0]).toHaveTextContent(/BM25 #\d · vector #\d/);
   });
 });

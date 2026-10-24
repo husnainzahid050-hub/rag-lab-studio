@@ -42,6 +42,8 @@ export interface AnswerInput {
   retrieved: RetrievedChunk[];
   /** Importance of a question term, e.g. its IDF in the corpus. Defaults to 1 for every term. */
   termWeight?: (term: string) => number;
+  /** Evidence score a sentence needs to be quoted; defaults to the balanced threshold. */
+  minEvidence?: number;
   /** Optional sentence embedder; when present, meaning-level similarity also counts as evidence. */
   embed?: (texts: string[]) => Promise<Vector[]>;
 }

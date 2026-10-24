@@ -1,4 +1,4 @@
-export type DocumentKind = "text" | "markdown" | "pdf";
+export type DocumentKind = "text" | "markdown" | "pdf" | "docx" | "html" | "csv" | "json";
 export type ContentOrigin = "sample" | "user";
 
 export interface WorkspaceDocument {
@@ -36,7 +36,24 @@ export interface Chunk {
   text: string;
 }
 
-export type RetrievalMode = "lexical" | "semantic";
+export type RetrievalMode = "lexical" | "semantic" | "hybrid";
+
+/** Semantic and hybrid retrieval both need chunk embeddings. */
+export function usesEmbeddings(mode: RetrievalMode): boolean {
+  return mode !== "lexical";
+}
+
+export const RETRIEVAL_MODE_LABELS: Record<RetrievalMode, string> = {
+  lexical: "Lexical (BM25)",
+  semantic: "Semantic (embeddings)",
+  hybrid: "Hybrid (BM25 + embeddings)",
+};
+
+export type AnswerStrictness = "strict" | "balanced" | "lenient";
+
+export interface AnswerSettings {
+  strictness: AnswerStrictness;
+}
 
 export interface RetrievalSettings {
   mode: RetrievalMode;

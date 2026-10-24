@@ -6,14 +6,27 @@ import { Loader2, Search } from "lucide-react";
 import { useEngine } from "@/components/engine/EngineProvider";
 import { ChunkInspector, type InspectTarget } from "@/components/rag/ChunkInspector";
 import { ResultList } from "@/components/rag/ResultList";
-import { Alert, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, cn } from "@/components/ui/primitives";
+import { Alert, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Segmented, cn } from "@/components/ui/primitives";
+import { SCORE_NAMES } from "@/lib/format";
 import { SCORE_DESCRIPTIONS, TOP_K_LIMITS, validateTopK, type RetrievalResponse, type RetrievedChunk } from "@/lib/retrieval/retrieve";
 import { useAppStore } from "@/lib/store";
 import { uniqueTerms } from "@/lib/text/tokenize";
+import { RETRIEVAL_MODE_LABELS, type RetrievalMode } from "@/lib/types";
 
-type ViewMode = "lexical" | "semantic" | "compare";
+type ViewMode = RetrievalMode | "compare";
 
-const MODE_LABELS: Record<ViewMode, string> = { lexical: "Lexical (BM25)", semantic: "Semantic (embeddings)", compare: "Compare both" };
+const VIEW_LABELS: Record<ViewMode, string> = {
+  lexical: "Lexical",
+  semantic: "Semantic",
+  hybrid: "Hybrid",
+  compare: "Compare all",
+};
+
+const RESULT_TITLES: Record<RetrievalMode, string> = {
+  lexical: "Lexical · BM25",
+  semantic: "Semantic · cosine similarity",
+  hybrid: "Hybrid · reciprocal rank fusion",
+};
 
 export function RetrievalView() {
   const { search, semanticReady, chunks } = useEngine();
@@ -21,8 +34,8 @@ export function RetrievalView() {
   const preferredMode = useAppStore((s) => s.settings.retrieval.mode);
   const [query, setQuery] = useState("");
   const [k, setK] = useState(String(defaultK));
-  const [mode, setMode] = useState<ViewMode>(preferredMode === "semantic" && semanticReady ? "semantic" : "lexical");
-  const [results, setResults] = useState<{ lexical?: RetrievalResponse; semantic?: RetrievalResponse } | null>(null);
+  const [mode, setMode] = useState<ViewMode>(preferredMode);
+  const [results, setResults] = useState<Partial<Record<RetrievalMode, RetrievalResponse>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
@@ -38,11 +51,10 @@ export function RetrievalView() {
     try {
       const n = Number(k);
       if (effectiveMode === "compare") {
-        const [lexical, semantic] = await Promise.all([search(query, n, "lexical"), search(query, n, "semantic")]);
-        setResults({ lexical, semantic });
+        const [lexical, semantic, hybrid] = await Promise.all([search(query, n, "lexical"), search(query, n, "semantic"), search(query, n, "hybrid")]);
+        setResults({ lexical, semantic, hybrid });
       } else {
-        const response = await search(query, n, effectiveMode);
-        setResults({ [effectiveMode]: response });
+        setResults({ [effectiveMode]: await search(query, n, effectiveMode) });
       }
     } catch (err) {
       setResults(null);
@@ -55,15 +67,18 @@ export function RetrievalView() {
   const openInspector = (r: RetrievedChunk, response: RetrievalResponse) =>
     setInspect({
       chunk: r.chunk,
-      terms: response.mode === "lexical" ? uniqueTerms(response.query) : [],
-      score: { value: r.score, label: response.mode === "semantic" ? "Cosine similarity" : "BM25 score" },
+      terms: response.mode === "semantic" ? [] : uniqueTerms(response.query),
+      score: { value: r.score, label: SCORE_NAMES[response.mode] },
     });
 
-  const ranks = (response?: RetrievalResponse) => new Map(response?.results.map((r) => [r.chunk.id, r.rank]) ?? []);
+  const shown = (["lexical", "semantic", "hybrid"] as const).filter((m) => results?.[m]);
+  const ranksOf = (m: RetrievalMode) => new Map(results?.[m]?.results.map((r) => [r.chunk.id, r.rank]) ?? []);
 
   return (
     <>
       <PageHeader
+        icon={Search}
+        eyebrow="Query"
         title="Retrieval inspector"
         description="Run a query against the chunk index and see exactly which chunks come back, in what order, and why."
       />
@@ -72,12 +87,7 @@ export function RetrievalView() {
         <CardBody>
           <form onSubmit={onSubmit} className="grid gap-4 md:grid-cols-[1fr_110px]">
             <Field label="Query" htmlFor="retrieval-query">
-              <Input
-                id="retrieval-query"
-                placeholder="e.g. how often should the espresso machine be descaled"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
+              <Input id="retrieval-query" placeholder="Search your documents…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10" />
             </Field>
             <Field label="Top-k" htmlFor="retrieval-k" error={kError}>
               <Input
@@ -88,30 +98,21 @@ export function RetrievalView() {
                 value={k}
                 aria-invalid={Boolean(kError)}
                 onChange={(e) => setK(e.target.value)}
+                className="h-10"
               />
             </Field>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2">
-              <div role="radiogroup" aria-label="Retrieval mode" className="inline-flex rounded-md border border-border p-0.5">
-                {(Object.keys(MODE_LABELS) as ViewMode[]).map((m) => {
-                  const disabled = m !== "lexical" && !semanticReady;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      role="radio"
-                      aria-checked={effectiveMode === m}
-                      disabled={disabled}
-                      onClick={() => setMode(m)}
-                      className={cn(
-                        "rounded px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40",
-                        effectiveMode === m ? "bg-accent text-accent-fg" : "text-muted hover:text-fg",
-                      )}
-                    >
-                      {MODE_LABELS[m]}
-                    </button>
-                  );
-                })}
-              </div>
+              <Segmented
+                label="Retrieval mode"
+                value={effectiveMode}
+                onChange={setMode}
+                options={(Object.keys(VIEW_LABELS) as ViewMode[]).map((m) => ({
+                  value: m,
+                  label: VIEW_LABELS[m],
+                  disabled: m !== "lexical" && !semanticReady,
+                  title: m === "compare" ? "Run all three methods side by side" : RETRIEVAL_MODE_LABELS[m],
+                }))}
+              />
               <Button type="submit" variant="primary" disabled={loading || chunks.length === 0} className="ml-auto">
                 {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Search className="size-4" aria-hidden />}
                 Search
@@ -119,7 +120,7 @@ export function RetrievalView() {
             </div>
             {!semanticReady && (
               <p className="text-xs text-muted md:col-span-2">
-                Semantic search needs the embedding model.{" "}
+                Semantic and hybrid search need the embedding model.{" "}
                 <Link href="/settings" className="text-accent underline-offset-2 hover:underline">
                   Load it in Settings
                 </Link>{" "}
@@ -139,16 +140,15 @@ export function RetrievalView() {
       {chunks.length === 0 && <Alert tone="info">This workspace has no chunks yet. Add documents first.</Alert>}
 
       {results ? (
-        <div className={cn("grid gap-6", results.lexical && results.semantic && "lg:grid-cols-2")}>
-          {(["lexical", "semantic"] as const).map((m) => {
-            const response = results[m];
-            if (!response) return null;
-            const other = m === "lexical" ? results.semantic : results.lexical;
+        <div className={cn("grid gap-6", shown.length === 2 && "lg:grid-cols-2", shown.length === 3 && "xl:grid-cols-3")}>
+          {shown.map((m) => {
+            const response = results[m]!;
+            const otherMode = shown.length > 1 ? (m === "lexical" ? "semantic" : "lexical") : null;
             return (
-              <Card key={m}>
-                <CardHeader title={m === "lexical" ? "Lexical results (BM25)" : "Semantic results (cosine similarity)"} description={SCORE_DESCRIPTIONS[m]} />
+              <Card key={m} className="min-w-0">
+                <CardHeader title={RESULT_TITLES[m]} description={SCORE_DESCRIPTIONS[m]} />
                 <CardBody>
-                  <ResultList response={response} onInspect={(r) => openInspector(r, response)} otherRanks={other ? ranks(other) : undefined} />
+                  <ResultList response={response} onInspect={(r) => openInspector(r, response)} otherRanks={otherMode ? ranksOf(otherMode) : undefined} />
                 </CardBody>
               </Card>
             );

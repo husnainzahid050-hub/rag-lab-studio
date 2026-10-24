@@ -1,52 +1,70 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f6f6f8;
+  --bg: #f5f6fb;
   --surface: #ffffff;
-  --surface-2: #f1f1f4;
-  --border: #e3e3e8;
-  --border-strong: #cfcfd8;
-  --fg: #17171c;
-  --muted: #6b6b78;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
+  --surface-2: #f2f3f8;
+  --surface-3: #e9ebf3;
+  --border: #e3e5ee;
+  --border-strong: #cdd1de;
+  --fg: #121429;
+  --muted: #646a82;
+  --accent: #5b4cf5;
+  --accent-hover: #4a3be0;
   --accent-fg: #ffffff;
-  --accent-soft: #eef0ff;
-  --success: #157f3c;
-  --success-soft: #e9f8ef;
+  --accent-soft: #efedff;
+  --accent-2: #c026d3;
+  --success: #12804a;
+  --success-soft: #e7f7ee;
   --warning: #a35a00;
-  --warning-soft: #fff6e5;
-  --danger: #b42318;
-  --danger-soft: #fdeceb;
+  --warning-soft: #fff5e3;
+  --danger: #c0262d;
+  --danger-soft: #fdecec;
   --info: #0b6aa2;
-  --info-soft: #eaf5fc;
+  --info-soft: #e8f4fb;
   --highlight: #fde68a;
-  --overlap: #c7d2fe;
+  --overlap: #d6d1ff;
+  --shadow-sm: 0 1px 2px rgb(18 20 41 / 0.04), 0 1px 3px rgb(18 20 41 / 0.04);
+  --shadow-md: 0 8px 24px -8px rgb(18 20 41 / 0.12), 0 2px 6px rgb(18 20 41 / 0.04);
+  --shadow-glow: 0 10px 30px -10px rgb(91 76 245 / 0.55);
+  --brand-gradient: linear-gradient(135deg, #5b4cf5 0%, #8b3cf0 55%, #c026d3 100%);
+  --hero-gradient:
+    radial-gradient(900px 300px at 0% 0%, rgb(91 76 245 / 0.16), transparent 60%),
+    radial-gradient(700px 260px at 100% 0%, rgb(192 38 211 / 0.12), transparent 60%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0c0c10;
-    --surface: #141419;
-    --surface-2: #1c1c23;
-    --border: #2a2a33;
-    --border-strong: #3a3a46;
-    --fg: #ececf1;
-    --muted: #9d9daa;
-    --accent: #8b8cf8;
-    --accent-hover: #a5a6fb;
-    --accent-fg: #0c0c10;
-    --accent-soft: #1f1f3d;
+    --bg: #0a0b14;
+    --surface: #12131f;
+    --surface-2: #1a1c2b;
+    --surface-3: #232637;
+    --border: #262940;
+    --border-strong: #363a55;
+    --fg: #eceefa;
+    --muted: #9a9fbb;
+    --accent: #8f84ff;
+    --accent-hover: #a59cff;
+    --accent-fg: #0a0b14;
+    --accent-soft: #221f45;
+    --accent-2: #e879f9;
     --success: #4ade80;
-    --success-soft: #0d2a19;
+    --success-soft: #0c2a1b;
     --warning: #fbbf24;
     --warning-soft: #2b2009;
     --danger: #f87171;
-    --danger-soft: #2f1213;
+    --danger-soft: #2f1214;
     --info: #38bdf8;
     --info-soft: #0b2535;
     --highlight: #6b5310;
-    --overlap: #2f3270;
+    --overlap: #34306e;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 10px 30px -10px rgb(0 0 0 / 0.6);
+    --shadow-glow: 0 10px 30px -10px rgb(143 132 255 / 0.45);
+    --brand-gradient: linear-gradient(135deg, #7c6dff 0%, #a35cf7 55%, #e879f9 100%);
+    --hero-gradient:
+      radial-gradient(900px 300px at 0% 0%, rgb(143 132 255 / 0.18), transparent 60%),
+      radial-gradient(700px 260px at 100% 0%, rgb(232 121 249 / 0.12), transparent 60%);
   }
 }
 
@@ -54,6 +72,7 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);
@@ -62,6 +81,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-2: var(--accent-2);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
@@ -72,23 +92,74 @@
   --color-info-soft: var(--info-soft);
   --color-highlight: var(--highlight);
   --color-overlap: var(--overlap);
+  --shadow-card: var(--shadow-sm);
+  --shadow-lift: var(--shadow-md);
+  --shadow-glow: var(--shadow-glow);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+/* In the base layer so component utilities (e.g. focus:outline-none) can override them. */
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  mark {
+    background: var(--highlight);
+    color: inherit;
+    border-radius: 2px;
+  }
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.bg-brand {
+  background-image: var(--brand-gradient);
 }
 
-mark {
-  background: var(--highlight);
-  color: inherit;
-  border-radius: 2px;
+.text-brand {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.bg-hero {
+  background-image: var(--hero-gradient);
+}
+
+.bg-dots {
+  background-image: radial-gradient(rgb(100 106 130 / 0.18) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.28s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
 }

@@ -1,27 +1,30 @@
 import { clear, createStore, getMany, setMany, type UseStore } from "idb-keyval";
 import type { VectorStore } from "./embeddings/cache";
 import type { EvalCase, EvalRun } from "./evaluation/types";
-import type { ChunkSettings, RetrievalSettings, WorkspaceDocument } from "./types";
+import type { AnswerSettings, ChunkSettings, RetrievalSettings, Workspace, WorkspaceDocument } from "./types";
 
 export const STORAGE_VERSION = 1;
 
 export interface PersistedSettings {
   chunking: ChunkSettings;
   retrieval: RetrievalSettings;
+  answer: AnswerSettings;
   /** The user opted in to downloading the embedding model; it is loaded again on the next visit. */
   semanticEnabled: boolean;
 }
 
 export interface PersistedState {
   version: number;
+  /** Missing in data saved before workspaces could be created; the store fills in defaults. */
+  workspaces?: Workspace[];
   activeWorkspaceId: string;
   documents: WorkspaceDocument[];
   evalCases: EvalCase[];
   evalRuns: EvalRun[];
-  settings: PersistedSettings;
+  settings: Partial<PersistedSettings>;
 }
 
-const KEYS = ["version", "activeWorkspaceId", "documents", "evalCases", "evalRuns", "settings"] as const;
+const KEYS = ["version", "workspaces", "activeWorkspaceId", "documents", "evalCases", "evalRuns", "settings"] as const;
 
 let stateStore: UseStore | null = null;
 let vectorStore: UseStore | null = null;
@@ -46,15 +49,16 @@ function getVectorStore() {
 
 export async function loadState(): Promise<PersistedState | null> {
   const values = await getMany(KEYS as unknown as string[], getStateStore());
-  const [version, activeWorkspaceId, documents, evalCases, evalRuns, settings] = values;
+  const [version, workspaces, activeWorkspaceId, documents, evalCases, evalRuns, settings] = values;
   if (version !== STORAGE_VERSION || !Array.isArray(documents)) return null;
   return {
     version,
-    activeWorkspaceId: typeof activeWorkspaceId === "string" ? activeWorkspaceId : "sample",
+    workspaces: Array.isArray(workspaces) ? workspaces : undefined,
+    activeWorkspaceId: typeof activeWorkspaceId === "string" ? activeWorkspaceId : "",
     documents,
     evalCases: Array.isArray(evalCases) ? evalCases : [],
     evalRuns: Array.isArray(evalRuns) ? evalRuns : [],
-    settings,
+    settings: settings && typeof settings === "object" ? settings : {},
   };
 }
 
@@ -82,4 +86,15 @@ export function describeStorageError(error: unknown): string {
     return "Browser storage is full. Remove some documents or clear local data; changes made now will not be saved.";
   }
   return "Saving to browser storage failed, so recent changes may not survive a reload.";
+}
+
+/** Approximate bytes used and available for this site, when the browser reports it. */
+export async function estimateStorage(): Promise<{ usage: number; quota: number } | null> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.storage?.estimate) return null;
+    const { usage, quota } = await navigator.storage.estimate();
+    return usage !== undefined && quota !== undefined ? { usage, quota } : null;
+  } catch {
+    return null;
+  }
 }

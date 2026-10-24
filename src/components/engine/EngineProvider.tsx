@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { extractiveAnswerer } from "@/lib/answering/extractive";
+import { STRICTNESS_THRESHOLDS, extractiveAnswerer } from "@/lib/answering/extractive";
 import type { AnswerGenerator, AnswerResult } from "@/lib/answering/types";
 import { ChunkSettingsError, chunkDocuments } from "@/lib/chunking";
-import { extractDocument, DocumentError } from "@/lib/documents/extract";
+import { documentFromText, extractDocument, DocumentError } from "@/lib/documents/extract";
 import { EmbeddingCache } from "@/lib/embeddings/cache";
 import { EMBEDDING_MODEL, type Embedder } from "@/lib/embeddings/types";
 import { WorkerEmbedder } from "@/lib/embeddings/worker-embedder";
@@ -15,7 +15,7 @@ import { buildBm25Index, idf, type Bm25Index } from "@/lib/retrieval/bm25";
 import { EmbeddingUnavailableError, retrieve, type RetrievalResponse, type SemanticBackend } from "@/lib/retrieval/retrieve";
 import { createVectorStore, isIndexedDbAvailable } from "@/lib/storage";
 import { startPersistence, useAppStore } from "@/lib/store";
-import type { Chunk, RetrievalMode, WorkspaceDocument } from "@/lib/types";
+import { RETRIEVAL_MODE_LABELS, usesEmbeddings, type Chunk, type RetrievalMode, type WorkspaceDocument } from "@/lib/types";
 
 export interface AskResult {
   question: string;
@@ -40,10 +40,12 @@ interface EngineValue {
   embeddingIndexError: string | null;
   answerer: AnswerGenerator;
   uploadFiles(files: File[]): Promise<void>;
+  /** Adds pasted text as a document; returns an error message instead of throwing. */
+  addTextDocument(name: string, text: string): string | null;
   search(query: string, k: number, mode: RetrievalMode): Promise<RetrievalResponse>;
   ask(question: string): Promise<AskResult>;
   runEvaluation(): Promise<EvalRun>;
-  loadModel(): Promise<void>;
+  loadModel(options?: { switchToHybrid?: boolean }): Promise<void>;
   unloadModel(): void;
 }
 
@@ -131,7 +133,7 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     return { embedder: embedderRef.current, cache: cacheRef.current };
   }, [createEmbedder, persist]);
 
-  const loadModel = useCallback(async () => {
+  const loadModel = useCallback(async (options: { switchToHybrid?: boolean } = {}) => {
     const { embedder } = getEmbedder();
     useAppStore.getState().setSemanticEnabled(true);
     setEmbedding({ state: "loading", progress: null, loadedBytes: 0, totalBytes: 0 });
@@ -140,6 +142,10 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
         setEmbedding({ state: "loading", progress: p.progress, loadedBytes: p.loadedBytes, totalBytes: p.totalBytes, file: p.file }),
       );
       setEmbedding({ state: "ready", device });
+      // Someone who downloads the model wants to use it; hybrid is the strongest default.
+      if (options.switchToHybrid && useAppStore.getState().settings.retrieval.mode === "lexical") {
+        useAppStore.getState().setRetrieval({ mode: "hybrid" });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setEmbedding({ state: "error", message: `The embedding model could not be loaded: ${message}` });
@@ -156,7 +162,7 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     setEmbedding({ state: "off" });
     setVectors(new Map());
     setEmbeddingProgress(null);
-    if (useAppStore.getState().settings.retrieval.mode === "semantic") useAppStore.getState().setRetrieval({ mode: "lexical" });
+    if (usesEmbeddings(useAppStore.getState().settings.retrieval.mode)) useAppStore.getState().setRetrieval({ mode: "lexical" });
   }, [setEmbedding]);
 
   // Reload the model on later visits once the user has opted in.
@@ -234,11 +240,11 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     async (query: string, k: number, mode: RetrievalMode) => {
       setStage("retrieval", { status: "running", detail: `Searching for "${query}"` });
       try {
-        if (mode === "semantic" && !semanticReady) throw semanticUnavailable();
-        const response = await retrieve({ query, k, mode, chunks, lexicalIndex, semantic: mode === "semantic" ? semanticBackend() : null });
+        if (usesEmbeddings(mode) && !semanticReady) throw semanticUnavailable();
+        const response = await retrieve({ query, k, mode, chunks, lexicalIndex, semantic: usesEmbeddings(mode) ? semanticBackend() : null });
         setStage("retrieval", {
           status: response.results.length ? "done" : "warning",
-          detail: `${response.results.length} of top-${k} results (${mode === "semantic" ? "semantic" : "BM25 lexical"})`,
+          detail: `${response.results.length} of top-${k} results (${RETRIEVAL_MODE_LABELS[mode]})`,
           durationMs: response.latencyMs,
         });
         return response;
@@ -252,11 +258,12 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
 
   const answerWith = useCallback(
     async (question: string, retrieval: RetrievalResponse) => {
-      const embedder = retrieval.mode === "semantic" ? embedderRef.current : null;
+      const embedder = usesEmbeddings(retrieval.mode) ? embedderRef.current : null;
       return extractiveAnswerer.generate({
         question,
         retrieved: retrieval.results,
         termWeight: (term) => idf(lexicalIndex, term),
+        minEvidence: STRICTNESS_THRESHOLDS[useAppStore.getState().settings.answer.strictness],
         embed: embedder && semanticReady ? (texts) => embedder.embed(texts) : undefined,
       });
     },
@@ -292,11 +299,11 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     const state = useAppStore.getState();
     const { mode, topK } = state.settings.retrieval;
     const cases = evalCases.filter((c) => c.workspaceId === workspaceId);
-    if (mode === "semantic" && !semanticReady) throw semanticUnavailable();
+    if (usesEmbeddings(mode) && !semanticReady) throw semanticUnavailable();
     setStage("evaluation", { status: "running", detail: `Running ${cases.length} case(s)` });
     const started = performance.now();
     const startedAt = new Date().toISOString();
-    const semantic = mode === "semantic" ? semanticBackend() : null;
+    const semantic = usesEmbeddings(mode) ? semanticBackend() : null;
     const results = await runCases(cases, {
       k: topK,
       docIds: new Set(documents.map((d) => d.id)),
@@ -314,8 +321,8 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
         topK,
         chunking: state.settings.chunking,
         chunkCount: chunks.length,
-        embeddingModel: mode === "semantic" ? EMBEDDING_MODEL.id : null,
-        answerer: extractiveAnswerer.label,
+        embeddingModel: usesEmbeddings(mode) ? EMBEDDING_MODEL.id : null,
+        answerer: `${extractiveAnswerer.label} (${state.settings.answer.strictness})`,
       },
       results,
       summary,
@@ -382,6 +389,34 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     [setStage],
   );
 
+  const addTextDocument = useCallback(
+    (name: string, text: string) => {
+      try {
+        const started = performance.now();
+        const doc = documentFromText(name, text);
+        useAppStore.getState().addDocument({
+          id: createId("doc"),
+          workspaceId: useAppStore.getState().activeWorkspaceId,
+          name: doc.name,
+          kind: "text",
+          origin: "user",
+          sizeBytes: new TextEncoder().encode(doc.text).length,
+          text: doc.text,
+          charCount: doc.text.length,
+          warnings: [],
+          extractionMs: performance.now() - started,
+          addedAt: new Date().toISOString(),
+        });
+        setStage("ingestion", { status: "done", detail: `Added pasted text "${doc.name}"` });
+        setStage("extraction", { status: "done", detail: `${doc.text.length.toLocaleString()} characters from pasted text` });
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    [setStage],
+  );
+
   useEffect(() => () => embedderRef.current?.dispose(), []);
 
   const value: EngineValue = {
@@ -394,6 +429,7 @@ export function EngineProvider({ children, createEmbedder, persist = true }: Eng
     embeddingIndexError,
     answerer: extractiveAnswerer,
     uploadFiles,
+    addTextDocument,
     search,
     ask,
     runEvaluation,

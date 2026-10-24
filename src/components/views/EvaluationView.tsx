@@ -11,6 +11,9 @@ import { formatDateTime, formatMs, formatPercent, formatRatio } from "@/lib/form
 import type { CaseOutcome, EvalCase, EvalRun } from "@/lib/evaluation/types";
 import { createId } from "@/lib/ids";
 import { useAppStore } from "@/lib/store";
+import { RETRIEVAL_MODE_LABELS } from "@/lib/types";
+
+const RUN_MODE_LABELS = { lexical: "BM25", semantic: "Semantic", hybrid: "Hybrid" } as const;
 
 const OUTCOME: Record<CaseOutcome, { tone: Tone; label: string }> = {
   pass: { tone: "success", label: "Pass" },
@@ -37,7 +40,7 @@ function RunConfig({ run }: { run: EvalRun }) {
   const c = run.config;
   return (
     <span>
-      {c.mode === "semantic" ? "Semantic" : "BM25"} · k={c.topK} · {c.chunking.strategy} {c.chunking.size}/{c.chunking.overlap} · {c.chunkCount} chunks
+      {RUN_MODE_LABELS[c.mode]} · k={c.topK} · {c.chunking.strategy} {c.chunking.size}/{c.chunking.overlap} · {c.chunkCount} chunks
     </span>
   );
 }
@@ -166,6 +169,8 @@ export function EvaluationView() {
   return (
     <>
       <PageHeader
+        icon={ClipboardCheck}
+        eyebrow="Measure"
         title="Evaluation"
         description="Define questions with known evidence, run them through retrieval and answering, and measure the results. Change chunking or retrieval settings and run again to compare."
         actions={
@@ -177,7 +182,7 @@ export function EvaluationView() {
       />
 
       <p className="-mt-3 mb-6 text-xs text-muted">
-        Next run will use: {mode === "semantic" ? "semantic retrieval" : "BM25 lexical retrieval"}, top-{topK}, current chunking settings. Change
+        Next run will use: {RETRIEVAL_MODE_LABELS[mode]} retrieval, top-{topK}, current chunking settings. Change
         these in Settings and Chunking.
       </p>
 

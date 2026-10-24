@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEngine } from "@/components/engine/EngineProvider";
 import { Alert } from "@/components/ui/primitives";
 import { useAppStore } from "@/lib/store";
+import { usesEmbeddings } from "@/lib/types";
 
 /** True when semantic mode is selected but the model or the chunk vectors are not ready yet. */
 export function useSemanticPending(): boolean {
   const mode = useAppStore((s) => s.settings.retrieval.mode);
   const { semanticReady } = useEngine();
-  return mode === "semantic" && !semanticReady;
+  return usesEmbeddings(mode) && !semanticReady;
 }
 
 export function SemanticPendingNotice() {
@@ -27,7 +28,7 @@ export function SemanticPendingNotice() {
   else message = "The embedding model is not loaded.";
 
   return (
-    <Alert tone="warning" title="Semantic retrieval is selected but not ready" className="mb-6">
+    <Alert tone="warning" title="AI search is selected but not ready" className="mb-6">
       {message} Wait for it to finish,{" "}
       <Link href="/settings" className="text-accent hover:underline">
         check Settings

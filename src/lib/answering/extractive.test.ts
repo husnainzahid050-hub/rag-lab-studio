@@ -4,7 +4,7 @@ import { buildBm25Index, idf } from "../retrieval/bm25";
 import { retrieve, type RetrievedChunk } from "../retrieval/retrieve";
 import { SAMPLE_DOCUMENTS } from "../sample/documents";
 import type { WorkspaceDocument } from "../types";
-import { answerExtractively, answerText } from "./extractive";
+import { answerExtractively, answerText, isQuotable } from "./extractive";
 
 const docs: WorkspaceDocument[] = SAMPLE_DOCUMENTS.map((d) => ({
   ...d,
@@ -97,5 +97,40 @@ describe("answerExtractively", () => {
     const answer = await answerExtractively({ question: "When will I get my money back?", retrieved, embed });
     expect(answer.status).toBe("answered");
     expect(answer.method).toMatch(/embedding/);
+  });
+});
+
+describe("answer focus and quotability", () => {
+  const brief = [
+    "Project Apollo brief",
+    "Project Apollo launches on 14 March 2027 in Lahore and Karachi.",
+    "The approved budget is 2.4 million euros, managed by the finance office.",
+    "The project lead is Dana Weber, who reports to the steering committee every month.",
+  ].join("\n\n");
+  const docsWithBrief: WorkspaceDocument[] = [...docs, { ...docs[0], id: "brief", name: "apollo-brief.docx", text: brief, charCount: brief.length }];
+  const allChunks = chunkDocuments(docsWithBrief, { strategy: "sentence", size: 500, overlap: 100 });
+  const allIndex = buildBm25Index(allChunks);
+
+  async function askAll(question: string) {
+    const retrieval = await retrieve({ query: question, k: 4, mode: "lexical", chunks: allChunks, lexicalIndex: allIndex });
+    return answerExtractively({ question, retrieved: retrieval.results, termWeight: (t) => idf(allIndex, t) });
+  }
+
+  it("quotes the sentence with the distinctive word, not a title that repeats the topic", async () => {
+    const answer = await askAll("What is the budget of Project Apollo?");
+    expect(answer.status).toBe("answered");
+    expect(answer.sentences[0].text).toContain("2.4 million euros");
+    expect(answerText(answer)).not.toContain("Project Apollo brief");
+  });
+
+  it("answers a role question from the right sentence", async () => {
+    const answer = await askAll("Who is the project lead?");
+    expect(answer.sentences[0].text).toContain("Dana Weber");
+  });
+
+  it("never quotes headings or fragments", () => {
+    expect(isQuotable("# Refunds")).toBe(false);
+    expect(isQuotable("Project Apollo brief")).toBe(false);
+    expect(isQuotable("The budget is 2.4 million euros.")).toBe(true);
   });
 });

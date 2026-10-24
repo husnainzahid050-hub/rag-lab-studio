@@ -56,6 +56,7 @@ export function ChunkingView() {
   };
 
   const visible = useMemo(() => (docFilter === "all" ? chunks : chunks.filter((c) => c.docId === docFilter)), [chunks, docFilter]);
+  const positions = useMemo(() => new Map(chunks.map((c, i) => [c.id, i])), [chunks]);
   const sizes = visible.map((c) => c.text.length);
   const avg = sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0;
   const mapDoc = docFilter === "all" ? documents[0] : documents.find((d) => d.id === docFilter);
@@ -64,6 +65,8 @@ export function ChunkingView() {
   return (
     <>
       <PageHeader
+        icon={Scissors}
+        eyebrow="Build"
         title="Chunking"
         description="Documents are split into chunks before indexing. Retrieval returns chunks, not whole documents, so these settings decide what evidence a query can find."
       />
@@ -211,7 +214,7 @@ export function ChunkingView() {
                 )}
                 <ol className="space-y-3" data-testid="chunk-list">
                   {visible.slice(0, previewLimit).map((chunk) => {
-                    const previous = chunks[chunks.indexOf(chunk) - 1];
+                    const previous = chunks[(positions.get(chunk.id) ?? 0) - 1];
                     const shared = overlapWithPrevious(chunk, previous);
                     return (
                       <li key={chunk.id} className="rounded-md border border-border">

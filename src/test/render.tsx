@@ -43,7 +43,7 @@ export function renderWithEngine(ui: ReactElement, embedder: () => Embedder = ()
 }
 
 /** Waits until the store has hydrated from IndexedDB and the page has rendered its heading. */
-export async function waitForPage(heading: string) {
+export async function waitForPage(heading: string | RegExp) {
   await waitFor(() => expect(useAppStore.getState().hydrated).toBe(true));
   await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument());
 }
