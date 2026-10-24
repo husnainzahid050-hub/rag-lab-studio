@@ -4,6 +4,8 @@ An interactive lab that shows every stage of a Retrieval-Augmented Generation (R
 
 Everything runs in the browser. There is no backend, no API key and no database; documents never leave your device.
 
+**Live demo:** https://rag-lab-studio.vercel.app
+
 ![Retrieval inspector comparing lexical and semantic results](docs/screenshots/retrieval-compare.png)
 
 ## Features
